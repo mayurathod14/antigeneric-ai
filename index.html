@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AntiGeneric AI</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #171a21;
+    --accent: #7c5cff;
+    --accent2: #26d0ce;
+    --text: #eaeaf0;
+    --muted: #9a9bab;
+    --danger: #ff5c7c;
+    --good: #3ddc97;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 40px 20px;
+  }
+  .wrap { max-width: 800px; margin: 0 auto; }
+  h1 {
+    font-size: 2.2rem;
+    margin-bottom: 4px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .subtitle { color: var(--muted); margin-bottom: 30px; }
+  textarea {
+    width: 100%;
+    min-height: 90px;
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid #2a2d3a;
+    background: var(--card);
+    color: var(--text);
+    font-size: 1rem;
+    resize: vertical;
+  }
+  button {
+    margin-top: 12px;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #fff;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .stage {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+    border: 1px solid #24273180;
+    display: none;
+  }
+  .stage.show { display: block; }
+  .stage h2 { margin-top: 0; font-size: 1.1rem; color: var(--accent2); }
+  .candidate {
+    background: #1e2129;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+  .candidate .name { font-weight: 700; font-size: 1.1rem; }
+  .candidate .tagline { color: var(--muted); font-style: italic; margin: 4px 0; }
+  .score {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    margin-top: 6px;
+  }
+  .score.low { background: var(--danger); color: #fff; }
+  .score.high { background: var(--good); color: #08281a; }
+  .complaint { font-size: 0.9rem; color: var(--danger); margin-top: 6px; }
+  .flags { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+  .revised-box {
+    border: 2px solid var(--good);
+    background: #10231a;
+  }
+  .loading { color: var(--muted); font-style: italic; }
+  .error { color: var(--danger); margin-top: 12px; }
+  .before-after { display: flex; gap: 16px; flex-wrap: wrap; }
+  .before-after > div { flex: 1; min-width: 250px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AntiGeneric AI</h1>
+  <p class="subtitle">Enter a rough idea. We'll detect the cliches and force it to get better.</p>
+
+  <textarea id="ideaInput" placeholder="e.g. An app that helps college students find project teammates based on skills and interests"></textarea>
+  <br>
+  <button id="submitBtn" onclick="runPipeline()">Run AntiGeneric Pipeline</button>
+  <div id="errorMsg" class="error"></div>
+
+  <div class="stage" id="stage1">
+    <h2>Stage 1 — Understanding Your Idea</h2>
+    <div id="stage1content"></div>
+  </div>
+
+  <div class="stage" id="stage2">
+    <h2>Stage 2 &amp; 3 — Candidates + Cliche Audit</h2>
+    <div id="stage2content"></div>
+  </div>
+
+  <div class="stage" id="stage3">
+    <h2>Stage 4 — Revised (Anti-Generic) Version</h2>
+    <div id="stage3content"></div>
+  </div>
+</div>
+
+<script>
+  // IMPORTANT: after you deploy your backend on Render, replace this URL
+  // with your real backend URL, e.g. https://antigeneric-ai.onrender.com
+  const BACKEND_URL = "http://localhost:3000";
+
+  async function runPipeline() {
+    const idea = document.getElementById('ideaInput').value.trim();
+    const errorMsg = document.getElementById('errorMsg');
+    const btn = document.getElementById('submitBtn');
+    errorMsg.textContent = '';
+
+    if (!idea) {
+      errorMsg.textContent = 'Please enter an idea first.';
+      return;
+    }
+
+    document.getElementById('stage1').classList.remove('show');
+    document.getElementById('stage2').classList.remove('show');
+    document.getElementById('stage3').classList.remove('show');
+
+    btn.disabled = true;
+    btn.textContent = 'Thinking... (this takes ~15-30 sec)';
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/pipeline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idea })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+
+      renderStage1(data.structured);
+      renderStage2(data.candidates);
+      renderStage3(data.weakest_original, data.revised);
+
+    } catch (err) {
+      errorMsg.textContent = 'Error: ' + err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Run AntiGeneric Pipeline';
+    }
+  }
+
+  function renderStage1(structured) {
+    const el = document.getElementById('stage1content');
+    el.innerHTML = `
+      <div class="candidate">
+        <p><strong>Target User:</strong> ${structured.target_user}</p>
+        <p><strong>Core Problem:</strong> ${structured.problem}</p>
+        <p><strong>Category:</strong> ${structured.category}</p>
+        <p><strong>Constraints:</strong> ${structured.constraints}</p>
+        <p><strong>Value:</strong> ${structured.value}</p>
+      </div>`;
+    document.getElementById('stage1').classList.add('show');
+  }
+
+  function renderStage2(candidates) {
+    const el = document.getElementById('stage2content');
+    el.innerHTML = candidates.map(c => `
+      <div class="candidate">
+        <div class="name">${c.name}</div>
+        <div class="tagline">"${c.tagline}"</div>
+        <p>${c.positioning}</p>
+        <span class="score ${c.score >= 7 ? 'high' : 'low'}">Distinctiveness: ${c.score}/10</span>
+        <div class="complaint">⚠ ${c.complaint}</div>
+        ${c.keyword_flags.length ? `<div class="flags">Cliche words found: ${c.keyword_flags.join(', ')}</div>` : ''}
+      </div>
+    `).join('');
+    document.getElementById('stage2').classList.add('show');
+  }
+
+  function renderStage3(weakest, revised) {
+    const el = document.getElementById('stage3content');
+    if (!revised) {
+      el.innerHTML = `<p>All candidates already scored well (7+) — no revision was needed!</p>`;
+    } else {
+      el.innerHTML = `
+        <div class="before-after">
+          <div>
+            <h3 style="color:var(--danger)">Before</h3>
+            <div class="candidate">
+              <div class="name">${weakest.name}</div>
+              <div class="tagline">"${weakest.tagline}"</div>
+              <span class="score low">${weakest.score}/10</span>
+              <div class="complaint">⚠ ${weakest.complaint}</div>
+            </div>
+          </div>
+          <div>
+            <h3 style="color:var(--good)">After (Revised)</h3>
+            <div class="candidate revised-box">
+              <div class="name">${revised.name}</div>
+              <div class="tagline">"${revised.tagline}"</div>
+              <p>${revised.positioning}</p>
+              <span class="score high">${revised.score}/10</span>
+            </div>
+          </div>
+        </div>`;
+    }
+    document.getElementById('stage3').classList.add('show');
+  }
+</script>
+</body>
+</html>
